@@ -23,15 +23,19 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.LauncherApps
 import android.content.pm.ShortcutInfo
+import android.graphics.Outline
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.UserHandle
 import android.provider.Settings
 import android.util.Log
+import android.view.View
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.widget.ImageView
 import org.uwuaosp.uwusystemui.R
 import java.util.concurrent.ConcurrentLinkedQueue
+import kotlin.math.min
 
 class PopUpQuickMenuController(
     private val sysuiContext: Context,
@@ -137,7 +141,10 @@ class PopUpQuickMenuController(
             .onFailure { Log.w(TAG, "Failed to load icon for $target", it) }
             .getOrNull()
             ?: return null
-        return ImageView(sysuiContext).apply { setImageDrawable(icon) }
+        return ImageView(sysuiContext).apply {
+            setImageDrawable(icon)
+            iconToCircle()
+        }
     }
 
     private fun loadIcon(target: QuickMenuTarget): Drawable {
@@ -157,6 +164,22 @@ class PopUpQuickMenuController(
     private fun fallbackAppIcon(packageName: String): Drawable =
         getCurrentUserContext().packageManager.getApplicationInfo(packageName, 0)
             .loadIcon(getCurrentUserContext().packageManager)
+
+    private fun View.iconToCircle() {
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                val size = min(view.width, view.height)
+                if (size <= 0) {
+                    outline.setEmpty()
+                    return
+                }
+                val left = (view.width - size) / 2
+                val top = (view.height - size) / 2
+                outline.setRoundRect(left, top, left + size, top + size, size / 2f)
+            }
+        }
+        clipToOutline = true
+    }
 
     private fun launchTarget(target: QuickMenuTarget) {
         when (target) {

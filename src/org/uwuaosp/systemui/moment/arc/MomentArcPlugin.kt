@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-package org.uwuaosp.uwusystemui.popup
+package org.uwuaosp.systemui.moment.arc
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.database.ContentObserver
 import android.os.Handler
 import android.os.Looper
 import android.os.UserHandle
@@ -28,32 +29,41 @@ import com.android.systemui.plugins.OverlayPlugin
 import com.android.systemui.plugins.annotations.Requires
 
 @Requires(target = OverlayPlugin::class, version = OverlayPlugin.VERSION)
-class PopUpQuickMenuPlugin : OverlayPlugin {
+class MomentArcPlugin : OverlayPlugin {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private lateinit var sysuiContext: Context
     private lateinit var pluginContext: Context
-    private lateinit var controller: PopUpQuickMenuController
+    private lateinit var controller: MomentArcController
+
+    private val settingsObserver =
+        object : ContentObserver(mainHandler) {
+            override fun onChange(selfChange: Boolean) {
+                if (!controller.isMomentEnabled()) {
+                    controller.hide()
+                }
+            }
+        }
 
     private val receiver =
         object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
-                    ACTION_SHOW_QUICK_MENU -> {
+                    ACTION_SHOW_MOMENT_ARC -> {
                         controller.show(
                             isLeft = intent.getBooleanExtra(EXTRA_IS_LEFT, true),
                             initialTouchX = intent.getFloatExtra(EXTRA_TOUCH_X, -1f),
                             initialTouchY = intent.getFloatExtra(EXTRA_TOUCH_Y, -1f),
                         )
                     }
-                    ACTION_UPDATE_TOUCH -> {
+                    ACTION_UPDATE_MOMENT_ARC_TOUCH -> {
                         controller.onTouchCoordinates(
                             x = intent.getFloatExtra(EXTRA_TOUCH_X, -1f),
                             y = intent.getFloatExtra(EXTRA_TOUCH_Y, -1f),
                             isUp = intent.getBooleanExtra(EXTRA_IS_UP, false),
                         )
                     }
-                    ACTION_DISMISS_QUICK_MENU -> controller.hide()
+                    ACTION_DISMISS_MOMENT_ARC -> controller.hide()
                 }
             }
         }
@@ -61,26 +71,35 @@ class PopUpQuickMenuPlugin : OverlayPlugin {
     override fun onCreate(sysuiContext: Context, pluginContext: Context) {
         this.sysuiContext = sysuiContext
         this.pluginContext = pluginContext
-        controller = PopUpQuickMenuController(sysuiContext, pluginContext)
+        controller = MomentArcController(sysuiContext, pluginContext)
 
         val filter =
             IntentFilter().apply {
-                addAction(ACTION_SHOW_QUICK_MENU)
-                addAction(ACTION_UPDATE_TOUCH)
-                addAction(ACTION_DISMISS_QUICK_MENU)
+                addAction(ACTION_SHOW_MOMENT_ARC)
+                addAction(ACTION_UPDATE_MOMENT_ARC_TOUCH)
+                addAction(ACTION_DISMISS_MOMENT_ARC)
             }
         sysuiContext.registerReceiverAsUser(
             receiver,
             UserHandle.ALL,
             filter,
-            null,
+            STATUS_BAR_PERMISSION,
             mainHandler,
             Context.RECEIVER_EXPORTED,
+        )
+        sysuiContext.contentResolver.registerContentObserver(
+            android.provider.Settings.Secure.getUriFor(
+                android.provider.Settings.Secure.MOMENT_ENABLED,
+            ),
+            false,
+            settingsObserver,
+            UserHandle.USER_ALL,
         )
     }
 
     override fun onDestroy() {
         controller.hide()
+        sysuiContext.contentResolver.unregisterContentObserver(settingsObserver)
         sysuiContext.unregisterReceiver(receiver)
     }
 
@@ -90,14 +109,15 @@ class PopUpQuickMenuPlugin : OverlayPlugin {
     }
 
     companion object {
-        const val ACTION_SHOW_QUICK_MENU = "com.android.systemui.action.SHOW_POP_UP_QUICK_MENU"
-        const val ACTION_UPDATE_TOUCH =
-            "com.android.systemui.action.UPDATE_POP_UP_QUICK_MENU_TOUCH"
-        const val ACTION_DISMISS_QUICK_MENU =
-            "com.android.systemui.action.DISMISS_POP_UP_QUICK_MENU"
+        const val ACTION_SHOW_MOMENT_ARC = "com.android.systemui.action.SHOW_MOMENT_ARC"
+        const val ACTION_UPDATE_MOMENT_ARC_TOUCH =
+            "com.android.systemui.action.UPDATE_MOMENT_ARC_TOUCH"
+        const val ACTION_DISMISS_MOMENT_ARC =
+            "com.android.systemui.action.DISMISS_MOMENT_ARC"
         const val EXTRA_IS_LEFT = "is_left"
         const val EXTRA_TOUCH_X = "touch_x"
         const val EXTRA_TOUCH_Y = "touch_y"
         const val EXTRA_IS_UP = "is_up"
+        private const val STATUS_BAR_PERMISSION = "android.permission.STATUS_BAR"
     }
 }

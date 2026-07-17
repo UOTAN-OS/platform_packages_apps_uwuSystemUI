@@ -15,14 +15,13 @@
  limitations under the License.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="org.uwuaosp.uwusystemui">
+    package="org.uwuaosp.systemui.moment.arc">
 
     <uses-permission android:name="com.android.systemui.permission.PLUGIN" />
-
     <application
         android:label="@string/plugin_label">
         <service
-            android:name=".popup.PopUpQuickMenuPlugin"
+            android:name=".MomentArcPlugin"
             android:exported="false"
             android:label="@string/plugin_label">
             <intent-filter>

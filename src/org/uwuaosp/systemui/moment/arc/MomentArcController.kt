@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.uwuaosp.uwusystemui.popup
+package org.uwuaosp.systemui.moment.arc
 
 import android.app.ActivityManager
 import android.app.ActivityOptions
@@ -33,11 +33,11 @@ import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.widget.ImageView
-import org.uwuaosp.uwusystemui.R
+import org.uwuaosp.systemui.moment.arc.R
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.math.min
 
-class PopUpQuickMenuController(
+class MomentArcController(
     private val sysuiContext: Context,
     private val pluginContext: Context,
 ) {
@@ -45,64 +45,74 @@ class PopUpQuickMenuController(
     private val windowManager = sysuiContext.getSystemService(WindowManager::class.java)
     private val touchCoordinatesQueue = ConcurrentLinkedQueue<Triple<Float, Float, Boolean>>()
 
-    private var overlayView: PopUpQuickMenuView? = null
+    private var overlayView: MomentArcView? = null
     private var isGestureActive = false
 
     fun show(isLeft: Boolean, initialTouchX: Float = -1f, initialTouchY: Float = -1f) {
         hide()
+        if (!isMomentEnabled()) return
 
         val innerTargets = getInnerRingTargets()
         val outerTargets = getOuterRingTargets()
-        val quickMenuView = PopUpQuickMenuView(sysuiContext, isLeft)
-        val displayedInnerTargets = ArrayList<QuickMenuTarget>()
-        val displayedOuterTargets = ArrayList<QuickMenuTarget>()
+        val momentArcView = MomentArcView(sysuiContext, isLeft)
+        val displayedInnerTargets = ArrayList<MomentArcTarget>()
+        val displayedOuterTargets = ArrayList<MomentArcTarget>()
 
         innerTargets.take(INNER_MAX_ICONS - 1).forEach { target ->
             createIconView(target)?.let { iconView ->
-                quickMenuView.addView(iconView)
+                momentArcView.addView(iconView)
                 displayedInnerTargets.add(target)
             }
         }
 
+        while (momentArcView.childCount < INNER_MAX_ICONS - 1) {
+            momentArcView.addView(View(sysuiContext).apply { visibility = View.INVISIBLE })
+        }
+
         // Keep the all-apps affordance available even when no quick apps are configured.
-        quickMenuView.addView(
+        momentArcView.addView(
             ImageView(sysuiContext).apply {
-                setImageDrawable(pluginContext.getDrawable(R.drawable.ic_popup_more_apps))
+                setImageDrawable(pluginContext.getDrawable(R.drawable.ic_moment_arc_all_apps))
             }
         )
 
         outerTargets.take(OUTER_MAX_ICONS).forEach { target ->
             createIconView(target)?.let { iconView ->
-                quickMenuView.addView(iconView)
+                momentArcView.addView(iconView)
                 displayedOuterTargets.add(target)
             }
         }
 
-        quickMenuView.setOnIconLaunchListener { index ->
+        momentArcView.setOnIconLaunchListener { index ->
+            if (!isMomentEnabled()) {
+                hide()
+                return@setOnIconLaunchListener
+            }
             when {
-                index < displayedInnerTargets.size -> launchTarget(displayedInnerTargets[index])
-                index == displayedInnerTargets.size -> launchAllApps()
+                index < INNER_MAX_ICONS - 1 ->
+                    displayedInnerTargets.getOrNull(index)?.let(::launchTarget)
+                index == INNER_MAX_ICONS - 1 -> launchAllApps()
                 else -> displayedOuterTargets
-                    .getOrNull(index - displayedInnerTargets.size - 1)
+                    .getOrNull(index - INNER_MAX_ICONS)
                     ?.let(::launchTarget)
             }
             hide()
         }
-        quickMenuView.setOnDismissListener { hide() }
+        momentArcView.setOnDismissListener { hide() }
         if (initialTouchX >= 0f && initialTouchY >= 0f) {
-            quickMenuView.setInitialTouchPoint(initialTouchX, initialTouchY)
+            momentArcView.setInitialTouchPoint(initialTouchX, initialTouchY)
         }
 
         try {
-            windowManager.addView(quickMenuView, PopUpQuickMenuView.createLayoutParams())
-            overlayView = quickMenuView
+            windowManager.addView(momentArcView, MomentArcView.createLayoutParams())
+            overlayView = momentArcView
             while (touchCoordinatesQueue.isNotEmpty()) {
                 touchCoordinatesQueue.poll()?.let { (x, y, isUp) ->
-                    quickMenuView.dispatchTouchCoordinates(x, y, isUp)
+                    momentArcView.dispatchTouchCoordinates(x, y, isUp)
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to add quick menu view", e)
+            Log.w(TAG, "Failed to add MomentArc view", e)
             overlayView = null
             isGestureActive = false
             touchCoordinatesQueue.clear()
@@ -110,6 +120,10 @@ class PopUpQuickMenuController(
     }
 
     fun onTouchCoordinates(x: Float, y: Float, isUp: Boolean) {
+        if (!isMomentEnabled()) {
+            hide()
+            return
+        }
         if (!isGestureActive && !isUp) {
             isGestureActive = true
         }
@@ -128,7 +142,7 @@ class PopUpQuickMenuController(
             try {
                 windowManager.removeView(view)
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to remove quick menu view", e)
+                Log.w(TAG, "Failed to remove MomentArc view", e)
             }
         }
         overlayView = null
@@ -136,7 +150,16 @@ class PopUpQuickMenuController(
         touchCoordinatesQueue.clear()
     }
 
-    private fun createIconView(target: QuickMenuTarget): ImageView? {
+    fun isMomentEnabled(): Boolean {
+        return Settings.Secure.getIntForUser(
+            sysuiContext.contentResolver,
+            Settings.Secure.MOMENT_ENABLED,
+            0,
+            ActivityManager.getCurrentUser(),
+        ) != 0
+    }
+
+    private fun createIconView(target: MomentArcTarget): ImageView? {
         val icon = runCatching { loadIcon(target) }
             .onFailure { Log.w(TAG, "Failed to load icon for $target", it) }
             .getOrNull()
@@ -147,10 +170,10 @@ class PopUpQuickMenuController(
         }
     }
 
-    private fun loadIcon(target: QuickMenuTarget): Drawable {
+    private fun loadIcon(target: MomentArcTarget): Drawable {
         return when (target) {
-            is QuickMenuTarget.App -> fallbackAppIcon(target.packageName)
-            is QuickMenuTarget.Shortcut -> {
+            is MomentArcTarget.App -> fallbackAppIcon(target.packageName)
+            is MomentArcTarget.Shortcut -> {
                 val shortcutInfo = getShortcutInfo(target)
                     ?: return fallbackAppIcon(target.packageName)
                 launcherApps.getShortcutBadgedIconDrawable(
@@ -181,10 +204,10 @@ class PopUpQuickMenuController(
         clipToOutline = true
     }
 
-    private fun launchTarget(target: QuickMenuTarget) {
+    private fun launchTarget(target: MomentArcTarget) {
         when (target) {
-            is QuickMenuTarget.App -> launchPackage(target.packageName)
-            is QuickMenuTarget.Shortcut -> launchShortcut(target)
+            is MomentArcTarget.App -> launchPackage(target.packageName)
+            is MomentArcTarget.Shortcut -> launchShortcut(target)
         }
     }
 
@@ -192,7 +215,7 @@ class PopUpQuickMenuController(
         val userContext = getCurrentUserContext()
         val launchIntent = userContext.packageManager.getLaunchIntentForPackage(packageName) ?: return
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-        val options = buildMiniWindowOptions()
+        val options = buildMomentOptions()
         runCatching {
             sysuiContext.startActivityAsUser(launchIntent, options.toBundle(), getCurrentUserHandle())
         }.onFailure {
@@ -200,8 +223,8 @@ class PopUpQuickMenuController(
         }
     }
 
-    private fun launchShortcut(target: QuickMenuTarget.Shortcut) {
-        val options = buildMiniWindowOptions().apply {
+    private fun launchShortcut(target: MomentArcTarget.Shortcut) {
+        val options = buildMomentOptions().apply {
             setApplyMultipleTaskFlagForShortcut(true)
         }
         runCatching {
@@ -220,10 +243,10 @@ class PopUpQuickMenuController(
     private fun launchAllApps() {
         val intent =
             Intent().apply {
-                setClassName(FREEFORM_SETTINGS_PACKAGE, FREEFORM_SETTINGS_ALL_APPS_ACTIVITY)
+                setClassName(SETTINGS_PACKAGE, SETTINGS_ALL_APPS_ACTIVITY)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
             }
-        val options = buildMiniWindowOptions()
+        val options = buildMomentOptions()
         runCatching {
             sysuiContext.startActivityAsUser(intent, options.toBundle(), getCurrentUserHandle())
         }.onFailure {
@@ -231,24 +254,24 @@ class PopUpQuickMenuController(
         }
     }
 
-    private fun buildMiniWindowOptions(): ActivityOptions {
+    private fun buildMomentOptions(): ActivityOptions {
         return ActivityOptions.makeBasic().apply {
-            setLaunchWindowingMode(WindowConfiguration.WINDOWING_MODE_MINI_WINDOW_EXT)
+            setLaunchWindowingMode(WindowConfiguration.WINDOWING_MODE_MOMENT)
             setPendingIntentBackgroundActivityStartMode(
                 ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
             )
         }
     }
 
-    private fun getInnerRingTargets(): List<QuickMenuTarget> {
-        return readTargets(Settings.System.POP_UP_VIEW_QUICK_MENU_SELECTED_APPS)
+    private fun getInnerRingTargets(): List<MomentArcTarget> {
+        return readTargets(INNER_RING_TARGETS)
     }
 
-    private fun getOuterRingTargets(): List<QuickMenuTarget> {
-        return readTargets(Settings.System.POP_UP_VIEW_QUICK_MENU_OUTER_RING_SELECTED_APPS)
+    private fun getOuterRingTargets(): List<MomentArcTarget> {
+        return readTargets(OUTER_RING_TARGETS)
     }
 
-    private fun readTargets(key: String): List<QuickMenuTarget> {
+    private fun readTargets(key: String): List<MomentArcTarget> {
         val selected =
             Settings.System.getStringForUser(
                 sysuiContext.contentResolver,
@@ -258,29 +281,29 @@ class PopUpQuickMenuController(
         return selected.split(ENTRY_SEPARATOR).mapNotNull(::parseTarget)
     }
 
-    private fun parseTarget(rawEntry: String): QuickMenuTarget? {
+    private fun parseTarget(rawEntry: String): MomentArcTarget? {
         val entry = rawEntry.trim()
         if (entry.isBlank()) {
             return null
         }
         if (!entry.startsWith(ENTRY_PREFIX_APP) && !entry.startsWith(ENTRY_PREFIX_SHORTCUT)) {
-            return QuickMenuTarget.App(entry)
+            return MomentArcTarget.App(entry)
         }
 
         return when {
             entry.startsWith(ENTRY_PREFIX_APP) -> {
                 val packageName = Uri.decode(entry.removePrefix(ENTRY_PREFIX_APP)).trim()
-                packageName.takeIf { it.isNotBlank() }?.let(QuickMenuTarget::App)
+                packageName.takeIf { it.isNotBlank() }?.let(MomentArcTarget::App)
             }
             entry.startsWith(ENTRY_PREFIX_SHORTCUT) -> parseShortcutTarget(entry)
             else -> null
         }
     }
 
-    private fun parseShortcutTarget(entry: String): QuickMenuTarget.Shortcut? {
+    private fun parseShortcutTarget(entry: String): MomentArcTarget.Shortcut? {
         val parts = entry.split(ENTRY_FIELD_SEPARATOR, limit = 4)
         if (parts.size !in 3..4) {
-            Log.w(TAG, "Ignoring malformed quick menu shortcut entry: $entry")
+            Log.w(TAG, "Ignoring malformed MomentArc shortcut entry: $entry")
             return null
         }
 
@@ -294,17 +317,17 @@ class PopUpQuickMenuController(
         val packageName = Uri.decode(parts[if (hasExplicitUserId) 2 else 1]).trim()
         val shortcutId = Uri.decode(parts[if (hasExplicitUserId) 3 else 2]).trim()
         if (userId == null || packageName.isBlank() || shortcutId.isBlank()) {
-            Log.w(TAG, "Ignoring malformed quick menu shortcut entry: $entry")
+            Log.w(TAG, "Ignoring malformed MomentArc shortcut entry: $entry")
             return null
         }
-        return QuickMenuTarget.Shortcut(
+        return MomentArcTarget.Shortcut(
             packageName = packageName,
             shortcutId = shortcutId,
             userId = userId,
         )
     }
 
-    private fun getShortcutInfo(target: QuickMenuTarget.Shortcut): ShortcutInfo? {
+    private fun getShortcutInfo(target: MomentArcTarget.Shortcut): ShortcutInfo? {
         return queryShortcutInfo(
             target,
             LauncherApps.ShortcutQuery.FLAG_MATCH_ALL_KINDS_WITH_ALL_PINNED,
@@ -315,7 +338,7 @@ class PopUpQuickMenuController(
     }
 
     private fun queryShortcutInfo(
-        target: QuickMenuTarget.Shortcut,
+        target: MomentArcTarget.Shortcut,
         queryFlags: Int,
     ): ShortcutInfo? {
         return runCatching {
@@ -344,25 +367,28 @@ class PopUpQuickMenuController(
     private fun getCurrentUserId(): Int = ActivityManager.getCurrentUser()
 
     companion object {
-        private const val TAG = "PopUpQuickMenuPlugin"
+        private const val TAG = "MomentArc"
         private const val INNER_MAX_ICONS = 6
         private const val OUTER_MAX_ICONS = 7
         private const val ENTRY_SEPARATOR = "|"
         private const val ENTRY_PREFIX_APP = "app:"
         private const val ENTRY_PREFIX_SHORTCUT = "shortcut:"
         private const val ENTRY_FIELD_SEPARATOR = ":"
-        private const val FREEFORM_SETTINGS_PACKAGE = "org.uwuaosp.settingsext"
-        private const val FREEFORM_SETTINGS_ALL_APPS_ACTIVITY =
-            "org.uwuaosp.settingsext.popup.AllAppsActivity"
+        private const val INNER_RING_TARGETS = "moment_arc_selected_targets"
+        private const val OUTER_RING_TARGETS =
+            "moment_arc_outer_ring_selected_targets"
+        private const val SETTINGS_PACKAGE = "org.uwuaosp.settingsext"
+        private const val SETTINGS_ALL_APPS_ACTIVITY =
+            "org.uwuaosp.settingsext.moment.MomentAllAppsActivity"
     }
 
-    private sealed interface QuickMenuTarget {
-        data class App(val packageName: String) : QuickMenuTarget
+    private sealed interface MomentArcTarget {
+        data class App(val packageName: String) : MomentArcTarget
 
         data class Shortcut(
             val packageName: String,
             val shortcutId: String,
             val userId: Int,
-        ) : QuickMenuTarget
+        ) : MomentArcTarget
     }
 }

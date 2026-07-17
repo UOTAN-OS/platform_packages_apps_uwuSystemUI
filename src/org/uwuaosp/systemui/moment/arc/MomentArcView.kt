@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.uwuaosp.uwusystemui.popup
+package org.uwuaosp.systemui.moment.arc
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
@@ -26,6 +26,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowManager
@@ -34,7 +35,7 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
-class PopUpQuickMenuView(
+class MomentArcView(
     context: Context,
     private val isLeft: Boolean,
 ) : ViewGroup(context) {
@@ -274,6 +275,7 @@ class PopUpQuickMenuView(
             val checkY = startY + (endY - startY) * ratio
             for (childIndex in 0 until childCount) {
                 val child = getChildAt(childIndex)
+                if (child.visibility != View.VISIBLE) continue
                 if (checkX >= child.left &&
                     checkX <= child.right &&
                     checkY >= child.top &&
@@ -293,6 +295,7 @@ class PopUpQuickMenuView(
         var newSelectedIndex = -1
         for (index in 0 until childCount) {
             val child = getChildAt(index)
+            if (child.visibility != View.VISIBLE) continue
             if (x >= child.left && x <= child.right && y >= child.top && y <= child.bottom) {
                 newSelectedIndex = index
                 break
@@ -361,7 +364,7 @@ class PopUpQuickMenuView(
                     WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                 PixelFormat.TRANSLUCENT,
             ).apply {
-                title = "Pop-Up Quick Menu"
+                title = "MomentArc"
                 gravity = Gravity.TOP or Gravity.START
                 fitInsetsTypes = 0
                 layoutInDisplayCutoutMode =

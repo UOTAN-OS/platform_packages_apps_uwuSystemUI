@@ -15,7 +15,7 @@
 //
 
 android_app {
-    name: "uwuSystemUI",
+    name: "MomentArc",
 
     srcs: ["src/**/*.kt"],
 

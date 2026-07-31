@@ -35,11 +35,13 @@ class MomentArcPlugin : OverlayPlugin {
     private lateinit var sysuiContext: Context
     private lateinit var pluginContext: Context
     private lateinit var controller: MomentArcController
+    private var receiverRegistered = false
+    private var settingsObserverRegistered = false
 
     private val settingsObserver =
         object : ContentObserver(mainHandler) {
             override fun onChange(selfChange: Boolean) {
-                if (!controller.isMomentEnabled()) {
+                if (!controller.isMomentArcEnabled()) {
                     controller.hide()
                 }
             }
@@ -61,9 +63,12 @@ class MomentArcPlugin : OverlayPlugin {
                             x = intent.getFloatExtra(EXTRA_TOUCH_X, -1f),
                             y = intent.getFloatExtra(EXTRA_TOUCH_Y, -1f),
                             isUp = intent.getBooleanExtra(EXTRA_IS_UP, false),
+                            isCancelled = intent.getBooleanExtra(EXTRA_IS_CANCELLED, false),
                         )
                     }
                     ACTION_DISMISS_MOMENT_ARC -> controller.hide()
+                    Intent.ACTION_SCREEN_OFF,
+                    Intent.ACTION_USER_SWITCHED -> controller.hide()
                 }
             }
         }
@@ -78,6 +83,8 @@ class MomentArcPlugin : OverlayPlugin {
                 addAction(ACTION_SHOW_MOMENT_ARC)
                 addAction(ACTION_UPDATE_MOMENT_ARC_TOUCH)
                 addAction(ACTION_DISMISS_MOMENT_ARC)
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_USER_SWITCHED)
             }
         sysuiContext.registerReceiverAsUser(
             receiver,
@@ -87,6 +94,7 @@ class MomentArcPlugin : OverlayPlugin {
             mainHandler,
             Context.RECEIVER_EXPORTED,
         )
+        receiverRegistered = true
         sysuiContext.contentResolver.registerContentObserver(
             android.provider.Settings.Secure.getUriFor(
                 android.provider.Settings.Secure.MOMENT_ENABLED,
@@ -95,12 +103,33 @@ class MomentArcPlugin : OverlayPlugin {
             settingsObserver,
             UserHandle.USER_ALL,
         )
+        settingsObserverRegistered = true
+        sysuiContext.contentResolver.registerContentObserver(
+            android.provider.Settings.Secure.getUriFor(
+                android.provider.Settings.Secure.MOMENT_ARC_GESTURE_ENABLED,
+            ),
+            false,
+            settingsObserver,
+            UserHandle.USER_ALL,
+        )
     }
 
     override fun onDestroy() {
-        controller.hide()
-        sysuiContext.contentResolver.unregisterContentObserver(settingsObserver)
-        sysuiContext.unregisterReceiver(receiver)
+        if (::controller.isInitialized) {
+            controller.hide()
+        }
+        if (::sysuiContext.isInitialized && settingsObserverRegistered) {
+            runCatching {
+                sysuiContext.contentResolver.unregisterContentObserver(settingsObserver)
+            }
+            settingsObserverRegistered = false
+        }
+        if (::sysuiContext.isInitialized && receiverRegistered) {
+            runCatching {
+                sysuiContext.unregisterReceiver(receiver)
+            }
+            receiverRegistered = false
+        }
     }
 
     override fun setup(statusBar: View?, navBar: View?) {
@@ -118,6 +147,7 @@ class MomentArcPlugin : OverlayPlugin {
         const val EXTRA_TOUCH_X = "touch_x"
         const val EXTRA_TOUCH_Y = "touch_y"
         const val EXTRA_IS_UP = "is_up"
+        const val EXTRA_IS_CANCELLED = "is_cancelled"
         private const val STATUS_BAR_PERMISSION = "android.permission.STATUS_BAR"
     }
 }

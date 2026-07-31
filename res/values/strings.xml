@@ -16,4 +16,5 @@
 -->
 <resources>
     <string name="plugin_label">MomentArc</string>
+    <string name="status_bar_lyric_plugin_label">Status bar lyrics</string>
 </resources>

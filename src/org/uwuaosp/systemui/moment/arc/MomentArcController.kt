@@ -26,6 +26,7 @@ import android.content.pm.ShortcutInfo
 import android.graphics.Outline
 import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.SystemClock
 import android.os.UserHandle
 import android.provider.Settings
 import android.util.Log
@@ -43,14 +44,16 @@ class MomentArcController(
 ) {
     private val launcherApps = sysuiContext.getSystemService(LauncherApps::class.java)
     private val windowManager = sysuiContext.getSystemService(WindowManager::class.java)
-    private val touchCoordinatesQueue = ConcurrentLinkedQueue<Triple<Float, Float, Boolean>>()
+    private val touchCoordinatesQueue = ConcurrentLinkedQueue<TouchCoordinates>()
 
     private var overlayView: MomentArcView? = null
     private var isGestureActive = false
+    private var lastWindowManagerErrorLogTime = Long.MIN_VALUE
+    private var suppressedWindowManagerErrorCount = 0
 
     fun show(isLeft: Boolean, initialTouchX: Float = -1f, initialTouchY: Float = -1f) {
         hide()
-        if (!isMomentEnabled()) return
+        if (!isMomentArcEnabled()) return
 
         val innerTargets = getInnerRingTargets()
         val outerTargets = getOuterRingTargets()
@@ -84,7 +87,7 @@ class MomentArcController(
         }
 
         momentArcView.setOnIconLaunchListener { index ->
-            if (!isMomentEnabled()) {
+            if (!isMomentArcEnabled()) {
                 hide()
                 return@setOnIconLaunchListener
             }
@@ -107,31 +110,45 @@ class MomentArcController(
             windowManager.addView(momentArcView, MomentArcView.createLayoutParams())
             overlayView = momentArcView
             while (touchCoordinatesQueue.isNotEmpty()) {
-                touchCoordinatesQueue.poll()?.let { (x, y, isUp) ->
-                    momentArcView.dispatchTouchCoordinates(x, y, isUp)
+                touchCoordinatesQueue.poll()?.let { touch ->
+                    momentArcView.dispatchTouchCoordinates(
+                        touch.x,
+                        touch.y,
+                        touch.isUp,
+                        touch.isCancelled,
+                    )
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to add MomentArc view", e)
+            logWindowManagerFailure("Failed to add MomentArc view", e)
             overlayView = null
             isGestureActive = false
             touchCoordinatesQueue.clear()
         }
     }
 
-    fun onTouchCoordinates(x: Float, y: Float, isUp: Boolean) {
-        if (!isMomentEnabled()) {
+    fun onTouchCoordinates(
+        x: Float,
+        y: Float,
+        isUp: Boolean,
+        isCancelled: Boolean = false,
+    ) {
+        if (!isMomentArcEnabled()) {
             hide()
             return
         }
-        if (!isGestureActive && !isUp) {
+        if (!isGestureActive && !isUp && !isCancelled) {
             isGestureActive = true
         }
 
-        overlayView?.dispatchTouchCoordinates(x, y, isUp)
-            ?: touchCoordinatesQueue.add(Triple(x, y, isUp))
+        overlayView?.dispatchTouchCoordinates(x, y, isUp, isCancelled)
+            ?: if (isCancelled) {
+                hide()
+            } else {
+                touchCoordinatesQueue.add(TouchCoordinates(x, y, isUp, false))
+            }
 
-        if (isUp) {
+        if (isUp || isCancelled) {
             isGestureActive = false
             touchCoordinatesQueue.clear()
         }
@@ -142,7 +159,7 @@ class MomentArcController(
             try {
                 windowManager.removeView(view)
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to remove MomentArc view", e)
+                logWindowManagerFailure("Failed to remove MomentArc view", e)
             }
         }
         overlayView = null
@@ -155,6 +172,18 @@ class MomentArcController(
             sysuiContext.contentResolver,
             Settings.Secure.MOMENT_ENABLED,
             0,
+            ActivityManager.getCurrentUser(),
+        ) != 0
+    }
+
+    fun isMomentArcEnabled(): Boolean {
+        if (!isMomentEnabled()) {
+            return false
+        }
+        return Settings.Secure.getIntForUser(
+            sysuiContext.contentResolver,
+            Settings.Secure.MOMENT_ARC_GESTURE_ENABLED,
+            1,
             ActivityManager.getCurrentUser(),
         ) != 0
     }
@@ -224,6 +253,10 @@ class MomentArcController(
     }
 
     private fun launchShortcut(target: MomentArcTarget.Shortcut) {
+        if (target.userId != getCurrentUserId()) {
+            Log.w(TAG, "Ignoring shortcut target for a non-current user")
+            return
+        }
         val options = buildMomentOptions().apply {
             setApplyMultipleTaskFlagForShortcut(true)
         }
@@ -320,6 +353,10 @@ class MomentArcController(
             Log.w(TAG, "Ignoring malformed MomentArc shortcut entry: $entry")
             return null
         }
+        if (userId != getCurrentUserId()) {
+            Log.w(TAG, "Ignoring MomentArc shortcut target for a non-current user")
+            return null
+        }
         return MomentArcTarget.Shortcut(
             packageName = packageName,
             shortcutId = shortcutId,
@@ -366,8 +403,31 @@ class MomentArcController(
 
     private fun getCurrentUserId(): Int = ActivityManager.getCurrentUser()
 
+    @Synchronized
+    private fun logWindowManagerFailure(message: String, error: Exception) {
+        val now = SystemClock.elapsedRealtime()
+        val shouldLog =
+            lastWindowManagerErrorLogTime == Long.MIN_VALUE ||
+                now - lastWindowManagerErrorLogTime >= WINDOW_MANAGER_ERROR_LOG_INTERVAL_MS
+        if (!shouldLog) {
+            suppressedWindowManagerErrorCount++
+            return
+        }
+
+        val suppressedSuffix =
+            if (suppressedWindowManagerErrorCount > 0) {
+                " ($suppressedWindowManagerErrorCount similar failures suppressed)"
+            } else {
+                ""
+            }
+        Log.w(TAG, message + suppressedSuffix, error)
+        lastWindowManagerErrorLogTime = now
+        suppressedWindowManagerErrorCount = 0
+    }
+
     companion object {
         private const val TAG = "MomentArc"
+        private const val WINDOW_MANAGER_ERROR_LOG_INTERVAL_MS = 30_000L
         private const val INNER_MAX_ICONS = 6
         private const val OUTER_MAX_ICONS = 7
         private const val ENTRY_SEPARATOR = "|"
@@ -391,4 +451,11 @@ class MomentArcController(
             val userId: Int,
         ) : MomentArcTarget
     }
+
+    private data class TouchCoordinates(
+        val x: Float,
+        val y: Float,
+        val isUp: Boolean,
+        val isCancelled: Boolean,
+    )
 }

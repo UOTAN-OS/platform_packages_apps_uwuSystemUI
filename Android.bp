@@ -17,7 +17,10 @@
 android_app {
     name: "MomentArc",
 
-    srcs: ["src/**/*.kt"],
+    srcs: [
+        "src/**/*.kt",
+        "src/**/*.java",
+    ],
 
     certificate: "platform",
     platform_apis: true,

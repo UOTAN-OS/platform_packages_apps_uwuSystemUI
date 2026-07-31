@@ -18,6 +18,7 @@
     package="org.uwuaosp.systemui.moment.arc">
 
     <uses-permission android:name="com.android.systemui.permission.PLUGIN" />
+    <uses-permission android:name="android.permission.STATUS_BAR" />
     <application
         android:label="@string/plugin_label">
         <service
@@ -26,6 +27,24 @@
             android:label="@string/plugin_label">
             <intent-filter>
                 <action android:name="com.android.systemui.action.PLUGIN_OVERLAY" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".lyric.StatusBarLyricPlugin"
+            android:exported="false"
+            android:label="@string/status_bar_lyric_plugin_label">
+            <intent-filter>
+                <action android:name="com.android.systemui.action.PLUGIN_OVERLAY" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".lyric.LyricNotificationListener"
+            android:exported="true"
+            android:label="@string/status_bar_lyric_plugin_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:process=":lyric_listener">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
     </application>

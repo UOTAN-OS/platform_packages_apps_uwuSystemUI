@@ -46,8 +46,6 @@ class MomentArcView(
     private var selectedChildIndex = -1
     private var lastVibratedIndex = -1
     private var isTouching = false
-    private var hasReceivedTouch = false
-    private var isFirstTouchUp = true
     private var initialTouchX = -1f
     private var initialTouchY = -1f
     private var hasInitialTouchPoint = false
@@ -166,7 +164,6 @@ class MomentArcView(
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
                 isTouching = true
-                hasReceivedTouch = true
                 if (hasInitialTouchPoint) {
                     updateSelectedIcon(event.x, event.y)
                     if (selectedChildIndex < 0) {
@@ -188,20 +185,26 @@ class MomentArcView(
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
-                if (isTouching) {
-                    resetTouchState()
-                }
+                cancelTouch()
                 return true
             }
         }
         return super.onTouchEvent(event)
     }
 
-    fun dispatchTouchCoordinates(x: Float, y: Float, isUp: Boolean) {
+    fun dispatchTouchCoordinates(
+        x: Float,
+        y: Float,
+        isUp: Boolean,
+        isCancelled: Boolean = false,
+    ) {
+        if (isCancelled) {
+            cancelTouch()
+            return
+        }
         when {
             !isTouching && !isUp -> {
                 isTouching = true
-                hasReceivedTouch = true
                 updateSelectedIcon(x, y)
             }
             isTouching && !isUp -> updateSelectedIcon(x, y)
@@ -210,15 +213,17 @@ class MomentArcView(
     }
 
     private fun finishTouch() {
-        if (!isTouching) return
-
         if (selectedChildIndex in 0 until childCount) {
             iconLaunchListeners.forEach { it(selectedChildIndex) }
-        } else if (hasReceivedTouch && !isFirstTouchUp) {
+        } else {
             dismissListeners.forEach { it() }
         }
-        isFirstTouchUp = false
         resetTouchState()
+    }
+
+    private fun cancelTouch() {
+        resetTouchState()
+        dismissListeners.forEach { it() }
     }
 
     private fun startIntroAnimation() {

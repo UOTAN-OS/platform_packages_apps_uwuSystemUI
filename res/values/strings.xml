@@ -17,4 +17,5 @@
 <resources>
     <string name="plugin_label">MomentArc</string>
     <string name="status_bar_lyric_plugin_label">Status bar lyrics</string>
+    <string name="smart_suggestions_plugin_label">Smart suggestions</string>
 </resources>

@@ -22,6 +22,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.database.ContentObserver
+import android.graphics.drawable.Icon
 import android.os.Handler
 import android.os.Looper
 import android.os.UserHandle
@@ -49,6 +50,7 @@ class StatusBarLyricPlugin : OverlayPlugin {
                     sourcePackage = intent.getStringExtra(EXTRA_SOURCE_PACKAGE),
                     text = intent.getStringExtra(EXTRA_TEXT),
                     translation = intent.getStringExtra(EXTRA_TRANSLATION),
+                    icon = intent.getParcelableExtra(EXTRA_ICON, Icon::class.java),
                     iconPackage = intent.getStringExtra(EXTRA_ICON_PACKAGE),
                     notificationKey = intent.getStringExtra(EXTRA_NOTIFICATION_KEY),
                 )
@@ -107,7 +109,12 @@ class StatusBarLyricPlugin : OverlayPlugin {
         }
     }
 
-    override fun setup(statusBar: View?, navBar: View?) = Unit
+    override fun setup(statusBar: View?, navBar: View?) {
+        // Android 17 supplies the notification-shade root here. The real status-bar window is
+        // delivered through setupStatusBarWindow().
+    }
+
+    override fun setupStatusBarWindow(statusBarWindow: View?) = controller.attach(statusBarWindow)
 
     companion object {
         const val ACTION_LYRIC_UPDATE = "org.uwuaosp.systemui.action.LYRIC_UPDATE"
@@ -115,6 +122,7 @@ class StatusBarLyricPlugin : OverlayPlugin {
         const val EXTRA_SOURCE_PACKAGE = "source_package"
         const val EXTRA_TEXT = "text"
         const val EXTRA_TRANSLATION = "translation"
+        const val EXTRA_ICON = "icon"
         const val EXTRA_ICON_PACKAGE = "icon_package"
         const val EXTRA_NOTIFICATION_KEY = "notification_key"
         const val STATUS_BAR_PERMISSION = "android.permission.STATUS_BAR"

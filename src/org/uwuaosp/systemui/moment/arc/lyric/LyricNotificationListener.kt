@@ -18,48 +18,81 @@ package org.uwuaosp.systemui.moment.arc.lyric
 
 import android.app.Notification
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.os.UserHandle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import com.android.systemui.plugins.uwu.UwuSuggestionContract
+import org.uwuaosp.systemui.moment.arc.suggestion.SmsCodeExtractor
 
 /**
  * Translates the established lyric ticker notification protocol into a broadcast that only
  * SystemUI, which owns the plugin host, can receive.
  */
 class LyricNotificationListener : NotificationListenerService() {
+    private val processUser: UserHandle
+        get() = UserHandle.of(UserHandle.myUserId())
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val notification = sbn.notification
-        if (!isLyricNotification(notification)) {
-            return
+        if (isLyricNotification(notification)) {
+            val text = notification.tickerText?.toString()
+            if (text != null) {
+                val sourcePackage = lyricSourcePackage(sbn, notification)
+                sendLyricUpdate(
+                    Intent(StatusBarLyricPlugin.ACTION_LYRIC_UPDATE)
+                        .putExtra(StatusBarLyricPlugin.EXTRA_SOURCE_PACKAGE, sourcePackage)
+                        .putExtra(StatusBarLyricPlugin.EXTRA_TEXT, text)
+                        .putExtra(
+                            StatusBarLyricPlugin.EXTRA_TRANSLATION,
+                            notification.extras.getString(EXTRA_TICKER_TRANSLATION),
+                        )
+                        .putExtra(
+                            StatusBarLyricPlugin.EXTRA_ICON_PACKAGE,
+                            notification.extras.getString(EXTRA_TICKER_ICON_PACKAGE, sourcePackage),
+                        )
+                        .putExtra(
+                            StatusBarLyricPlugin.EXTRA_ICON,
+                            notification.extras.getParcelable(EXTRA_TICKER_SMALL_ICON, Icon::class.java)
+                                ?: notification.smallIcon,
+                        )
+                        .putExtra(StatusBarLyricPlugin.EXTRA_NOTIFICATION_KEY, sbn.key),
+                )
+            }
         }
-        val text = notification.tickerText?.toString() ?: return
-        val sourcePackage = lyricSourcePackage(sbn, notification)
-        sendUpdate(
-            Intent(StatusBarLyricPlugin.ACTION_LYRIC_UPDATE)
-                .putExtra(StatusBarLyricPlugin.EXTRA_SOURCE_PACKAGE, sourcePackage)
-                .putExtra(StatusBarLyricPlugin.EXTRA_TEXT, text)
-                .putExtra(
-                    StatusBarLyricPlugin.EXTRA_TRANSLATION,
-                    notification.extras.getString(EXTRA_TICKER_TRANSLATION),
-                )
-                .putExtra(
-                    StatusBarLyricPlugin.EXTRA_ICON_PACKAGE,
-                    notification.extras.getString(EXTRA_TICKER_ICON_PACKAGE, sourcePackage),
-                )
-                .putExtra(StatusBarLyricPlugin.EXTRA_NOTIFICATION_KEY, sbn.key),
+
+        val code = SmsCodeExtractor.extract(this, notificationText(notification)) ?: return
+        sendBroadcastAsUser(
+            Intent(UwuSuggestionContract.ACTION_SHOW_VERIFICATION_CODE)
+                .setPackage(UwuSuggestionContract.HOST_PACKAGE)
+                .putExtra(UwuSuggestionContract.EXTRA_VERIFICATION_CODE, code),
+            processUser,
+            UwuSuggestionContract.STATUS_BAR_PERMISSION,
         )
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        sendUpdate(
-            Intent(StatusBarLyricPlugin.ACTION_LYRIC_CLEAR)
-                .putExtra(StatusBarLyricPlugin.EXTRA_NOTIFICATION_KEY, sbn.key),
-        )
+        if (isLyricNotification(sbn.notification)) {
+            sendLyricUpdate(
+                Intent(StatusBarLyricPlugin.ACTION_LYRIC_CLEAR)
+                    .putExtra(StatusBarLyricPlugin.EXTRA_NOTIFICATION_KEY, sbn.key),
+            )
+        }
     }
 
-    private fun sendUpdate(intent: Intent) {
-        intent.setPackage(packageName)
-        sendBroadcastAsUser(intent, UserHandle.CURRENT, STATUS_BAR_PERMISSION)
+    private fun sendLyricUpdate(intent: Intent) {
+        intent.setPackage(UwuSuggestionContract.HOST_PACKAGE)
+        sendBroadcastAsUser(intent, processUser, STATUS_BAR_PERMISSION)
+    }
+
+    private fun notificationText(notification: Notification): String {
+        val extras = notification.extras
+        return buildList {
+                extras.getCharSequence(Notification.EXTRA_TEXT)?.let(::add)
+                extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.let(::add)
+                extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.let(::addAll)
+            }
+            .joinToString(separator = "\n")
     }
 
     private fun isLyricNotification(notification: Notification): Boolean {
@@ -83,6 +116,7 @@ class LyricNotificationListener : NotificationListenerService() {
         const val STATUS_BAR_PERMISSION = "android.permission.STATUS_BAR"
         const val LYRIC_FETCH_PACKAGE = "cn.binbin323.statuslyricext"
         const val EXTRA_TICKER_ICON_PACKAGE = "ticker_icon_package"
+        const val EXTRA_TICKER_SMALL_ICON = "ticker_small_icon"
         const val EXTRA_TICKER_TRANSLATION = "ticker_translation"
         // Kept protocol-compatible with uwu-16.2 without adding obsolete public Notification APIs.
         const val FLAG_ALWAYS_SHOW_TICKER = 0x01000000

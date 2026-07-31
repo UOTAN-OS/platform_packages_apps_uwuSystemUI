@@ -38,6 +38,14 @@
             </intent-filter>
         </service>
         <service
+            android:name=".suggestion.SmartSuggestionsPlugin"
+            android:exported="false"
+            android:label="@string/smart_suggestions_plugin_label">
+            <intent-filter>
+                <action android:name="com.android.systemui.action.PLUGIN_OVERLAY" />
+            </intent-filter>
+        </service>
+        <service
             android:name=".lyric.LyricNotificationListener"
             android:exported="true"
             android:label="@string/status_bar_lyric_plugin_label"
